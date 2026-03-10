@@ -90,8 +90,16 @@ def _read_log(name: str, tail: int = 50) -> str:
     return "\n".join(lines[-tail:])
 
 
-def _create_job(name: str, schedule: str, command: str, enabled: bool = True) -> dict:
-    """Create or update a cron job. Returns the job dict."""
+def _create_job(name: str, schedule: str, command: str, enabled: bool = True, script: str | None = None) -> dict:
+    """Create or update a cron job. Optionally writes a script file alongside it."""
+    if script is not None:
+        script_path = CRON_DIR / f"{name}.py"
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text(script)
+        # Default command runs the co-located script
+        if not command:
+            command = f"cd /data && /data/venv/bin/python3 {script_path} >> /data/logs/{name}.log 2>&1"
+
     job = {
         "name": name,
         "schedule": schedule,
@@ -157,16 +165,20 @@ def list_jobs() -> str:
 
 
 @mcp.tool()
-def create_job(name: str, schedule: str, command: str, enabled: bool = True) -> str:
-    """Create or update a cron job.
+def create_job(name: str, schedule: str, command: str = "", enabled: bool = True, script: str = "") -> str:
+    """Create or update a cron job, optionally deploying a Python script with it.
+
+    When script is provided, it is written to /data/cron/{name}.py. If command is
+    omitted, a default command is generated that runs the script with the venv Python.
 
     Args:
         name: Unique job name (e.g. "daily-standup")
         schedule: Cron expression (e.g. "0 9 * * 1-5" for 9am weekdays)
-        command: Shell command to execute
+        command: Shell command to execute (auto-generated if script is provided and command is empty)
         enabled: Whether the job is active (default: true)
+        script: Full Python source code to deploy alongside the job (optional)
     """
-    job = _create_job(name, schedule, command, enabled)
+    job = _create_job(name, schedule, command, enabled, script=script or None)
     return json.dumps(job, indent=2)
 
 
