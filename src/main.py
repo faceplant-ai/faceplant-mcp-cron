@@ -1,4 +1,4 @@
-import asyncio
+import asyncio  # noqa: trigger deploy
 import json
 import logging
 import os
