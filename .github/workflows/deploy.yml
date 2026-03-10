@@ -64,11 +64,13 @@ jobs:
           cd terraform && terraform apply -auto-approve \
             -var="slack_bot_token=$SLACK_BOT_TOKEN" \
             -var="notion_api_key=$NOTION_API_KEY" \
-            -var="anthropic_api_key=$ANTHROPIC_API_KEY"
+            -var="anthropic_api_key=$ANTHROPIC_API_KEY" \
+            -var="hubspot_access_token=$HUBSPOT_ACCESS_TOKEN"
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          HUBSPOT_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }}
 
       - name: Force new ECS deployment
         run: |

@@ -58,18 +58,25 @@ variable "anthropic_api_key" {
   default   = ""
 }
 
+variable "hubspot_access_token" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
 locals {
   infra = data.terraform_remote_state.infra.outputs
   name  = "mcp-cron"
   port  = 8000
   environment = {
-    BASE_URL         = "/api/mcp-cron"
-    ALLOWED_ORIGINS  = "https://faceplant.ai"
-    BROKER_URL       = "http://broker.faceplant.local:8000"
-    GATEWAY_UPSTREAM = "http://mcp-cron.faceplant.local:8000"
-    SLACK_BOT_TOKEN  = var.slack_bot_token
-    NOTION_API_KEY   = var.notion_api_key
-    ANTHROPIC_API_KEY = var.anthropic_api_key
+    BASE_URL             = "/api/mcp-cron"
+    ALLOWED_ORIGINS      = "https://faceplant.ai"
+    BROKER_URL           = "http://broker.faceplant.local:8000"
+    GATEWAY_UPSTREAM     = "http://mcp-cron.faceplant.local:8000"
+    SLACK_BOT_TOKEN      = var.slack_bot_token
+    NOTION_API_KEY       = var.notion_api_key
+    ANTHROPIC_API_KEY    = var.anthropic_api_key
+    HUBSPOT_ACCESS_TOKEN = var.hubspot_access_token
   }
 }
 
