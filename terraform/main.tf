@@ -29,7 +29,7 @@ provider "aws" {
   }
 }
 
-# --- Remote State: read shared infra outputs ---
+# --- Remote state: read shared infra outputs ---
 
 data "terraform_remote_state" "infra" {
   backend = "s3"
