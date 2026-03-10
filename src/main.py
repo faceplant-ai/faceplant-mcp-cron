@@ -53,14 +53,25 @@ def _delete_job_file(name: str) -> None:
     path.unlink(missing_ok=True)
 
 
+_PASSTHROUGH_ENV_VARS = [
+    "SLACK_BOT_TOKEN", "NOTION_API_KEY", "ANTHROPIC_API_KEY",
+    "BROKER_URL", "GATEWAY_UPSTREAM",
+]
+
+
 def _sync_crontab() -> None:
     """Rebuild the system crontab from all job definitions."""
     jobs = _load_jobs()
     lines = [
         "# Managed by faceplant-mcp-cron — do not edit manually",
-        f"SHELL=/bin/bash",
-        "",
+        "SHELL=/bin/bash",
     ]
+    # Pass through container env vars so cron jobs can access them
+    for var in _PASSTHROUGH_ENV_VARS:
+        val = os.environ.get(var, "")
+        if val:
+            lines.append(f'{var}={val}')
+    lines.append("")
     for job in jobs.values():
         if not job.get("enabled", True):
             continue

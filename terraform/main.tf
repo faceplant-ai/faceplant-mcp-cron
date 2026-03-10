@@ -40,6 +40,24 @@ data "terraform_remote_state" "infra" {
   }
 }
 
+variable "slack_bot_token" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "notion_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "anthropic_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
 locals {
   infra = data.terraform_remote_state.infra.outputs
   name  = "mcp-cron"
@@ -49,6 +67,9 @@ locals {
     ALLOWED_ORIGINS  = "https://faceplant.ai"
     BROKER_URL       = "http://broker.faceplant.local:8000"
     GATEWAY_UPSTREAM = "http://mcp-cron.faceplant.local:8000"
+    SLACK_BOT_TOKEN  = var.slack_bot_token
+    NOTION_API_KEY   = var.notion_api_key
+    ANTHROPIC_API_KEY = var.anthropic_api_key
   }
 }
 
