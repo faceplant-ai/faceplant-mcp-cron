@@ -22,6 +22,7 @@ GATEWAY_UPSTREAM = os.getenv("GATEWAY_UPSTREAM", "http://host.docker.internal:51
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 CRON_DIR = DATA_DIR / "cron"
 LOGS_DIR = DATA_DIR / "logs"
+VENVS_DIR = DATA_DIR / "venvs"
 
 
 # ── Cron helpers ──
@@ -90,21 +91,53 @@ def _read_log(name: str, tail: int = 50) -> str:
     return "\n".join(lines[-tail:])
 
 
-def _create_job(name: str, schedule: str, command: str, enabled: bool = True, script: str | None = None) -> dict:
-    """Create or update a cron job. Optionally writes a script file alongside it."""
+def _setup_venv(name: str, dependencies: list[str]) -> Path:
+    """Create or update a per-job venv with the given dependencies."""
+    venv_dir = VENVS_DIR / name
+    venv_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create venv if it doesn't exist
+    if not (venv_dir / "bin" / "python3").exists():
+        result = subprocess.run(
+            ["uv", "venv", str(venv_dir)],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"uv venv failed: {result.stderr}")
+
+    # Install dependencies
+    result = subprocess.run(
+        ["uv", "pip", "install", "--python", str(venv_dir / "bin" / "python3"), *dependencies],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"uv pip install failed: {result.stderr}")
+
+    return venv_dir
+
+
+def _create_job(name: str, schedule: str, command: str, enabled: bool = True,
+                script: str | None = None, dependencies: list[str] | None = None) -> dict:
+    """Create or update a cron job. Optionally writes a script and sets up a venv."""
+    venv_python = "/data/venv/bin/python3"  # fallback to shared venv
+
+    if dependencies:
+        venv_dir = _setup_venv(name, dependencies)
+        venv_python = str(venv_dir / "bin" / "python3")
+
     if script is not None:
         script_path = CRON_DIR / f"{name}.py"
         script_path.parent.mkdir(parents=True, exist_ok=True)
         script_path.write_text(script)
-        # Default command runs the co-located script
         if not command:
-            command = f"cd /data && /data/venv/bin/python3 {script_path} >> /data/logs/{name}.log 2>&1"
+            command = f"cd /data && {venv_python} {script_path}"
 
     job = {
         "name": name,
         "schedule": schedule,
         "command": command,
         "enabled": enabled,
+        "dependencies": dependencies or [],
         "created": datetime.now(timezone.utc).isoformat(),
     }
     _save_job(job)
@@ -165,11 +198,13 @@ def list_jobs() -> str:
 
 
 @mcp.tool()
-def create_job(name: str, schedule: str, command: str = "", enabled: bool = True, script: str = "") -> str:
-    """Create or update a cron job, optionally deploying a Python script with it.
+def create_job(name: str, schedule: str, command: str = "", enabled: bool = True,
+               script: str = "", dependencies: list[str] = []) -> str:
+    """Create or update a cron job, optionally deploying a Python script and its dependencies.
 
-    When script is provided, it is written to /data/cron/{name}.py. If command is
-    omitted, a default command is generated that runs the script with the venv Python.
+    When script is provided, it is written to /data/cron/{name}.py. When dependencies
+    are provided, a per-job venv is created at /data/venvs/{name}/ using uv. If command
+    is omitted, a default is generated that runs the script with the job's venv Python.
 
     Args:
         name: Unique job name (e.g. "daily-standup")
@@ -177,14 +212,16 @@ def create_job(name: str, schedule: str, command: str = "", enabled: bool = True
         command: Shell command to execute (auto-generated if script is provided and command is empty)
         enabled: Whether the job is active (default: true)
         script: Full Python source code to deploy alongside the job (optional)
+        dependencies: List of pip packages for the job's venv (e.g. ["anthropic", "slack-sdk", "requests"])
     """
-    job = _create_job(name, schedule, command, enabled, script=script or None)
+    job = _create_job(name, schedule, command, enabled,
+                      script=script or None, dependencies=dependencies or None)
     return json.dumps(job, indent=2)
 
 
 @mcp.tool()
 def delete_job(name: str) -> str:
-    """Delete a cron job by name.
+    """Delete a cron job by name. Removes the job definition, script, and venv.
 
     Args:
         name: The job name to delete
@@ -193,6 +230,14 @@ def delete_job(name: str) -> str:
     if name not in jobs:
         return f"Job '{name}' not found."
     _delete_job_file(name)
+    # Clean up script
+    script_path = CRON_DIR / f"{name}.py"
+    script_path.unlink(missing_ok=True)
+    # Clean up per-job venv
+    venv_dir = VENVS_DIR / name
+    if venv_dir.exists():
+        import shutil
+        shutil.rmtree(venv_dir, ignore_errors=True)
     _sync_crontab()
     return f"Deleted job '{name}'."
 
