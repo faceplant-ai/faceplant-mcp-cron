@@ -1,0 +1,67 @@
+name: Terraform Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm'
+        required: true
+        type: string
+
+jobs:
+  destroy:
+    name: Destroy
+    runs-on: ubuntu-latest
+    if: inputs.confirm == 'destroy'
+    env:
+      AWS_REGION: us-west-2
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.9"
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
+
+      - name: Delete state backend
+        working-directory: .
+        run: |
+          REGION="us-west-2"
+          BUCKET="faceplant-mcp-cron-tfstate"
+          TABLE="faceplant-mcp-cron-tflock"
+
+          echo "Emptying and deleting S3 bucket..."
+          aws s3 rb "s3://$BUCKET" --force 2>/dev/null || true
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            aws s3api list-object-versions --bucket "$BUCKET" \
+              --query "Versions[?VersionId!='null'].[Key,VersionId]" --output text 2>/dev/null | \
+              while read -r key vid; do
+                [ -z "$key" ] || [ "$key" = "None" ] && continue
+                [ -z "$vid" ] || [ "$vid" = "None" ] && continue
+                aws s3api delete-object --bucket "$BUCKET" --key "$key" --version-id "$vid" > /dev/null
+              done
+            aws s3api list-object-versions --bucket "$BUCKET" \
+              --query "DeleteMarkers[?VersionId!='null'].[Key,VersionId]" --output text 2>/dev/null | \
+              while read -r key vid; do
+                [ -z "$key" ] || [ "$key" = "None" ] && continue
+                [ -z "$vid" ] || [ "$vid" = "None" ] && continue
+                aws s3api delete-object --bucket "$BUCKET" --key "$key" --version-id "$vid" > /dev/null
+              done
+            aws s3api delete-bucket --bucket "$BUCKET" --region "$REGION"
+          fi
+
+          echo "Deleting DynamoDB lock table..."
+          aws dynamodb delete-table --table-name "$TABLE" --region "$REGION" 2>/dev/null || true
+
+          echo "State backend destroyed."
