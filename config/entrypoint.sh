@@ -3,6 +3,7 @@ set -e
 
 DATA_DIR="/data"
 mkdir -p "$DATA_DIR/cron" "$DATA_DIR/logs"
+touch "$DATA_DIR/.env"
 chown -R cron:cron "$DATA_DIR"
 
 # Restore persisted crontab if it exists
