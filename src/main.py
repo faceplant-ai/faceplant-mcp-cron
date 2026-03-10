@@ -197,6 +197,70 @@ def run_job(name: str) -> str:
 
 
 @mcp.tool()
+def get_job_script(name: str) -> str:
+    """Get the source code of a cron job's script.
+
+    Parses the job's command to find the Python script path and returns its contents.
+    Use this to understand what a job does or before making changes with update_job_script.
+
+    Args:
+        name: The job name
+    """
+    jobs = _load_jobs()
+    if name not in jobs:
+        return f"Job '{name}' not found."
+
+    command = jobs[name]["command"]
+
+    # Extract .py script path from command string
+    script_path = None
+    for part in command.split():
+        if part.endswith(".py"):
+            script_path = Path(part)
+            break
+
+    if not script_path:
+        return f"Could not find a .py script in command: {command}"
+
+    if not script_path.exists():
+        return f"Script not found at {script_path}"
+
+    return script_path.read_text()
+
+
+@mcp.tool()
+def update_job_script(name: str, script: str) -> str:
+    """Update the source code of a cron job's script.
+
+    Writes the provided script content to the job's script file, replacing the existing code.
+    The job's command and schedule remain unchanged.
+
+    Args:
+        name: The job name
+        script: The full Python script source code to write
+    """
+    jobs = _load_jobs()
+    if name not in jobs:
+        return f"Job '{name}' not found."
+
+    command = jobs[name]["command"]
+
+    # Extract .py script path from command string
+    script_path = None
+    for part in command.split():
+        if part.endswith(".py"):
+            script_path = Path(part)
+            break
+
+    if not script_path:
+        return f"Could not find a .py script in command: {command}"
+
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    script_path.write_text(script)
+    return f"Updated {script_path} ({len(script)} bytes)"
+
+
+@mcp.tool()
 def get_job_logs(name: str, tail: int = 50) -> str:
     """Get recent log output for a cron job.
 
