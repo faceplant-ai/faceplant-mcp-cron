@@ -16,7 +16,7 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   SERVICE: mcp-cron
   ECR_URL: 151765334007.dkr.ecr.us-west-2.amazonaws.com/faceplant-mcp-cron
-  CHART: oci://151765334007.dkr.ecr.us-west-2.amazonaws.com/faceplant-chart
+  CHART: oci://151765334007.dkr.ecr.us-west-2.amazonaws.com/faceplant-service
 
 jobs:
   deploy:
