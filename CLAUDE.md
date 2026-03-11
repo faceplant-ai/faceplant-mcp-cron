@@ -24,7 +24,7 @@ The MCP server is mounted at `/mcp` using Streamable HTTP transport (stateless).
 
 **Connecting from Claude Code**:
 ```bash
-claude mcp add --transport http mcp-cron http://mcp-cron.faceplant.local:8000/mcp
+claude mcp add --transport http mcp-cron http://mcp-cron.faceplant.svc.cluster.local:8000/mcp
 ```
 
 **Tools**:
