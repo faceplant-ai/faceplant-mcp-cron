@@ -1,26 +1,43 @@
 default: dev
 
+SVC := "mcp-cron"
+IMAGE := "faceplant-mcp-cron"
+COLLECTION := parent_directory(justfile_directory())
+CHART := COLLECTION / "faceplant-infra" / "k8s-chart"
+VALUES := COLLECTION / "faceplant-infra" / "k8s-values"
+
 build:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "Stopping existing container..."
-    docker rm -f faceplant-mcp-cron 2>/dev/null || true
     echo "Building image..."
-    docker build -f config/Dockerfile -t faceplant-mcp-cron .
+    docker build -f config/Dockerfile -t {{ IMAGE }}:latest .
     echo "Done. Run 'just dev' to start."
 
 dev:
     #!/usr/bin/env bash
     set -euo pipefail
-    [ -f .env ] || cp .env.example .env
-    docker rm -f faceplant-mcp-cron 2>/dev/null || true
-    docker run -d --name faceplant-mcp-cron --env-file .env \
-        -v faceplant-mcp-cron-data:/data \
-        -p 5191:8000 faceplant-mcp-cron
-    echo "-> http://localhost:5191"
+    export PATH="$HOME/.local/bin:$PATH"
+    if kind get clusters 2>/dev/null | grep -q '^faceplant$'; then
+        echo "Loading into kind..."
+        kind load docker-image {{ IMAGE }}:latest --name faceplant
+        echo "Deploying to k8s..."
+        helm upgrade --install {{ SVC }} {{ CHART }} \
+            -n faceplant \
+            -f {{ VALUES }}/{{ SVC }}.yaml \
+            --kube-context kind-faceplant
+        kubectl --context kind-faceplant rollout restart deployment/{{ SVC }} -n faceplant
+        echo "Done (k8s)."
+    else
+        [ -f .env ] || cp .env.example .env
+        docker rm -f {{ IMAGE }} 2>/dev/null || true
+        docker run -d --name {{ IMAGE }} --env-file .env \
+            -v faceplant-mcp-cron-data:/data \
+            -p 5191:8000 {{ IMAGE }}
+        echo "-> http://localhost:5191"
+    fi
 
 shutdown:
-    docker rm -f faceplant-mcp-cron 2>/dev/null || true
+    docker rm -f {{ IMAGE }} 2>/dev/null || true
     echo "Stopped."
 
 # --- Terraform Bootstrap (runs in CI via GitHub Actions) ---
