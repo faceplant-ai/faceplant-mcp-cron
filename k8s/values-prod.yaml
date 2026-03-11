@@ -1,0 +1,25 @@
+name: mcp-cron
+image: 151765334007.dkr.ecr.us-west-2.amazonaws.com/faceplant-mcp-cron:latest
+imagePullPolicy: Always
+port: 8000
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+volume:
+  enabled: true
+  size: 2Gi
+  storageClassName: efs-dynamic
+env:
+  BASE_URL: "/api/mcp-cron"
+  ALLOWED_ORIGINS: "https://faceplant.ai"
+  BROKER_URL: "http://broker.faceplant.svc.cluster.local:8000"
+  GATEWAY_UPSTREAM: "http://mcp-cron.faceplant.svc.cluster.local:8000"
+secrets:
+  SLACK_BOT_TOKEN: PLACEHOLDER
+  NOTION_API_KEY: PLACEHOLDER
+  ANTHROPIC_API_KEY: PLACEHOLDER
+  HUBSPOT_ACCESS_TOKEN: PLACEHOLDER

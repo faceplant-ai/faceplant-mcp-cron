@@ -8,6 +8,7 @@ on:
       - "src/**"
       - "config/**"
       - "pyproject.toml"
+      - "k8s/**"
 
 env:
   AWS_REGION: us-west-2
@@ -15,6 +16,7 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   SERVICE: mcp-cron
   ECR_URL: 151765334007.dkr.ecr.us-west-2.amazonaws.com/faceplant-mcp-cron
+  CHART: oci://151765334007.dkr.ecr.us-west-2.amazonaws.com/faceplant-chart
 
 jobs:
   deploy:
@@ -22,14 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/checkout@v4
-        with:
-          repository: faceplant-ai/faceplant-infra
-          token: ${{ secrets.GH_TOKEN }}
-          path: infra
-
       - uses: aws-actions/amazon-ecr-login@v2
-        id: ecr
 
       - name: Build and push Docker image
         run: |
@@ -44,9 +39,9 @@ jobs:
 
       - name: Deploy to EKS
         run: |
-          helm upgrade --install mcp-cron infra/k8s-chart \
+          helm upgrade --install $SERVICE $CHART \
             -n faceplant \
-            -f infra/k8s-values/prod/mcp-cron.yaml \
+            -f k8s/values-prod.yaml \
             --set image=$ECR_URL:${{ github.sha }} \
             --set secrets.SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }} \
             --set secrets.NOTION_API_KEY=${{ secrets.NOTION_API_KEY }} \
