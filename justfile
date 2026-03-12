@@ -18,14 +18,16 @@ dev:
     set -euo pipefail
     export PATH="$HOME/.local/bin:$PATH"
     if kind get clusters 2>/dev/null | grep -q '^faceplant$'; then
-        echo "Loading into kind..."
-        kind load docker-image {{ IMAGE }}:latest --name faceplant
+        TAG=$(docker images -q {{ IMAGE }}:latest)
+        docker tag {{ IMAGE }}:latest {{ IMAGE }}:$TAG
+        echo "Loading {{ IMAGE }}:$TAG into kind..."
+        kind load docker-image {{ IMAGE }}:$TAG --name faceplant
         echo "Deploying to k8s..."
         helm upgrade --install {{ SVC }} {{ CHART }} \
             -n faceplant \
             -f {{ VALUES }}/{{ SVC }}.yaml \
+            --set image={{ IMAGE }}:$TAG \
             --kube-context kind-faceplant
-        kubectl --context kind-faceplant rollout restart deployment/{{ SVC }} -n faceplant
         echo "Done (k8s)."
     else
         [ -f .env ] || cp .env.example .env
