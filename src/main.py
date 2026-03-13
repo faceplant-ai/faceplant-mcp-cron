@@ -135,7 +135,7 @@ def _fetch_keys(key_names: list[str]) -> dict[str, str]:
         try:
             resp = httpx.post(
                 f"{BROKER_URL}/request/connections.get-key",
-                json={"params": {"key_name": key_name, "caller": "faceplant-mcp-cron"}},
+                json={"data": {"key_name": key_name, "caller": "faceplant-mcp-cron"}},
                 timeout=5,
             )
             if resp.status_code == 403:
