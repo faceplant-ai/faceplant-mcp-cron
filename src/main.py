@@ -260,11 +260,12 @@ def list_jobs() -> str:
 def create_job(name: str, schedule: str, command: str = "", enabled: bool = True,
                script: str = "", dependencies: list[str] = [],
                keys: list[str] = []) -> str:
-    """Create or update a cron job, optionally deploying a Python script and its dependencies.
+    """Create or update a cron job with a Python script and optional dependencies.
 
-    When script is provided, it is written to /data/cron/{name}.py. When dependencies
-    are provided, a per-job venv is created at /data/venvs/{name}/ using uv. If command
-    is omitted, a default is generated that runs the script with the job's venv Python.
+    The script parameter is required — it must contain the full Python source code.
+    The script is written to /data/cron/{name}.py. When dependencies are provided,
+    a per-job venv is created at /data/venvs/{name}/ using uv. If command is omitted,
+    a default is generated that runs the script with the job's venv Python.
 
     When keys are provided, they are fetched from the Connections service at submission
     time and stored as environment variables for the job. If any key is missing or
@@ -279,6 +280,8 @@ def create_job(name: str, schedule: str, command: str = "", enabled: bool = True
         dependencies: List of pip packages for the job's venv (e.g. ["anthropic", "slack-sdk", "requests"])
         keys: List of API key names from Connections (e.g. ["NOTION_API_KEY", "ANTHROPIC_API_KEY"])
     """
+    if not script and not command:
+        return "Error: script is required. Provide the full Python source code for the job."
     try:
         job = _create_job(name, schedule, command, enabled,
                           script=script or None, dependencies=dependencies or None,
