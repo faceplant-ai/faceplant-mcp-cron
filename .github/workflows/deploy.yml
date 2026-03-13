@@ -26,6 +26,11 @@ jobs:
 
       - uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names faceplant-$SERVICE --region $AWS_REGION 2>/dev/null || \
+          aws ecr create-repository --repository-name faceplant-$SERVICE --region $AWS_REGION --image-tag-mutability MUTABLE
+
       - name: Build and push Docker image
         run: |
           docker build -f config/Dockerfile \
