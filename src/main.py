@@ -53,12 +53,6 @@ def _delete_job_file(name: str) -> None:
     path.unlink(missing_ok=True)
 
 
-_PASSTHROUGH_ENV_VARS = [
-    "SLACK_BOT_TOKEN", "NOTION_API_KEY", "ANTHROPIC_API_KEY",
-    "BROKER_URL", "GATEWAY_UPSTREAM",
-]
-
-
 def _sync_crontab() -> None:
     """Rebuild the system crontab from all job definitions."""
     jobs = _load_jobs()
@@ -66,8 +60,8 @@ def _sync_crontab() -> None:
         "# Managed by faceplant-mcp-cron — do not edit manually",
         "SHELL=/bin/bash",
     ]
-    # Pass through container env vars so cron jobs can access them
-    for var in _PASSTHROUGH_ENV_VARS:
+    # Infra env vars (not secrets — needed for broker/gateway communication)
+    for var in ("BROKER_URL", "GATEWAY_UPSTREAM"):
         val = os.environ.get(var, "")
         if val:
             lines.append(f'{var}={val}')
@@ -76,8 +70,13 @@ def _sync_crontab() -> None:
         if not job.get("enabled", True):
             continue
         log_file = LOGS_DIR / f"{job['name']}.log"
+        # Inject per-job env vars inline so each job only sees its own keys
+        env_prefix = ""
+        for k, v in job.get("env", {}).items():
+            safe_v = v.replace("'", "'\\''")
+            env_prefix += f"{k}='{safe_v}' "
         lines.append(
-            f"{job['schedule']} {job['command']} >> {log_file} 2>&1"
+            f"{job['schedule']} {env_prefix}{job['command']} >> {log_file} 2>&1"
         )
     lines.append("")
 
@@ -127,10 +126,47 @@ def _setup_venv(name: str, dependencies: list[str]) -> Path:
     return venv_dir
 
 
+def _fetch_keys(key_names: list[str]) -> dict[str, str]:
+    """Fetch key values from connections service via broker. Returns {name: value}.
+    Raises RuntimeError if any key is missing or access denied."""
+    env = {}
+    errors = []
+    for key_name in key_names:
+        try:
+            resp = httpx.post(
+                f"{BROKER_URL}/request/connections.get-key",
+                json={"params": {"key_name": key_name, "caller": "faceplant-mcp-cron"}},
+                timeout=5,
+            )
+            if resp.status_code == 403:
+                errors.append(f"{key_name}: access denied — grant mcp-cron access in Connections settings")
+            elif resp.status_code == 404:
+                errors.append(f"{key_name}: not found in Connections")
+            elif resp.status_code != 200:
+                errors.append(f"{key_name}: broker error ({resp.status_code})")
+            else:
+                data = resp.json()
+                env[key_name] = data["value"]
+        except httpx.ConnectError:
+            errors.append(f"{key_name}: connections service unreachable (broker down?)")
+        except Exception as e:
+            errors.append(f"{key_name}: {e}")
+    if errors:
+        raise RuntimeError("Failed to fetch keys:\n" + "\n".join(f"  - {e}" for e in errors))
+    return env
+
+
 def _create_job(name: str, schedule: str, command: str, enabled: bool = True,
-                script: str | None = None, dependencies: list[str] | None = None) -> dict:
-    """Create or update a cron job. Optionally writes a script and sets up a venv."""
+                script: str | None = None, dependencies: list[str] | None = None,
+                keys: list[str] | None = None) -> dict:
+    """Create or update a cron job. Optionally writes a script and sets up a venv.
+    If keys are specified, fetches them from connections at submission time."""
     venv_python = "/data/venv/bin/python3"  # fallback to shared venv
+
+    # Fetch keys from connections before anything else — fail fast
+    env = {}
+    if keys:
+        env = _fetch_keys(keys)
 
     if dependencies:
         venv_dir = _setup_venv(name, dependencies)
@@ -149,6 +185,8 @@ def _create_job(name: str, schedule: str, command: str, enabled: bool = True,
         "command": command,
         "enabled": enabled,
         "dependencies": dependencies or [],
+        "keys": keys or [],
+        "env": env,
         "created": datetime.now(timezone.utc).isoformat(),
     }
     _save_job(job)
@@ -166,6 +204,10 @@ def _run_job(name: str) -> dict:
     log_file = LOGS_DIR / f"{name}.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
+    # Build env: inherit current env + job-specific keys
+    run_env = os.environ.copy()
+    run_env.update(job.get("env", {}))
+
     with open(log_file, "a") as f:
         f.write(f"\n--- manual run {datetime.now(timezone.utc).isoformat()} ---\n")
         result = subprocess.run(
@@ -174,6 +216,7 @@ def _run_job(name: str) -> dict:
             capture_output=True,
             text=True,
             timeout=300,
+            env=run_env,
         )
         f.write(result.stdout)
         if result.stderr:
@@ -205,17 +248,27 @@ def list_jobs() -> str:
     jobs = _load_jobs()
     if not jobs:
         return "No cron jobs configured."
-    return json.dumps(list(jobs.values()), indent=2)
+    # Strip env values (secrets) — only show key names
+    safe = []
+    for job in jobs.values():
+        j = {k: v for k, v in job.items() if k != "env"}
+        safe.append(j)
+    return json.dumps(safe, indent=2)
 
 
 @mcp.tool()
 def create_job(name: str, schedule: str, command: str = "", enabled: bool = True,
-               script: str = "", dependencies: list[str] = []) -> str:
+               script: str = "", dependencies: list[str] = [],
+               keys: list[str] = []) -> str:
     """Create or update a cron job, optionally deploying a Python script and its dependencies.
 
     When script is provided, it is written to /data/cron/{name}.py. When dependencies
     are provided, a per-job venv is created at /data/venvs/{name}/ using uv. If command
     is omitted, a default is generated that runs the script with the job's venv Python.
+
+    When keys are provided, they are fetched from the Connections service at submission
+    time and stored as environment variables for the job. If any key is missing or
+    mcp-cron doesn't have access, the job is rejected with an error.
 
     Args:
         name: Unique job name (e.g. "daily-standup")
@@ -224,10 +277,16 @@ def create_job(name: str, schedule: str, command: str = "", enabled: bool = True
         enabled: Whether the job is active (default: true)
         script: Full Python source code to deploy alongside the job (optional)
         dependencies: List of pip packages for the job's venv (e.g. ["anthropic", "slack-sdk", "requests"])
+        keys: List of API key names from Connections (e.g. ["NOTION_API_KEY", "ANTHROPIC_API_KEY"])
     """
-    job = _create_job(name, schedule, command, enabled,
-                      script=script or None, dependencies=dependencies or None)
-    return json.dumps(job, indent=2)
+    try:
+        job = _create_job(name, schedule, command, enabled,
+                          script=script or None, dependencies=dependencies or None,
+                          keys=keys or None)
+    except RuntimeError as e:
+        return str(e)
+    safe = {k: v for k, v in job.items() if k != "env"}
+    return json.dumps(safe, indent=2)
 
 
 @mcp.tool()
