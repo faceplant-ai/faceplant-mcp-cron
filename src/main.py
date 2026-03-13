@@ -134,8 +134,8 @@ def _fetch_keys(key_names: list[str]) -> dict[str, str]:
     for key_name in key_names:
         try:
             resp = httpx.post(
-                f"{BROKER_URL}/request/connections.get-key",
-                json={"data": {"key_name": key_name, "caller": "faceplant-mcp-cron"}},
+                f"{BROKER_URL}/request/connections.keys",
+                json={"data": {"action": "get", "key_name": key_name, "caller": "faceplant-mcp-cron"}},
                 timeout=5,
             )
             if resp.status_code == 403:
